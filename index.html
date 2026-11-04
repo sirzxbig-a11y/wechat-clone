@@ -67,6 +67,12 @@
   .mini-btn:hover{background:#dbe7fd}
   .mini-btn.danger{background:var(--red-l);color:var(--red)}
   .mini-btn.danger:hover{background:#fbd9da}
+  .modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:100;padding:22px}
+  .modal{background:#fff;border-radius:16px;padding:20px;max-width:360px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.25);border:1px solid var(--line)}
+  .modal-title{font-weight:700;font-size:16px;margin-bottom:8px}
+  .modal-body{font-size:13px;color:var(--muted);line-height:1.65;white-space:pre-wrap}
+  .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+  .modal-actions .btn{padding:10px 16px;font-size:13px;box-shadow:none}
   .log{background:#0f1117;color:#d7e0ea;border-radius:12px;padding:14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.6;max-height:300px;overflow:auto;white-space:pre-wrap;word-break:break-all;margin-top:14px}
   .log .ok{color:#7ee2a8}.log .err{color:#ff8b8b}.log .dim{color:#8b96a5}
   .hint{font-size:12px;color:var(--muted);margin-top:12px;line-height:1.65}
@@ -124,6 +130,18 @@
     <pre class="log" id="log">等待操作…</pre>
   </section>
 </div>
+
+<div id="modal" class="modal-mask" style="display:none">
+  <div class="modal">
+    <div class="modal-title" id="modal-title">确认</div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeModal(false)">取消</button>
+      <button class="btn primary" onclick="closeModal(true)">确定</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const $ = (id) => document.getElementById(id);
 
@@ -131,6 +149,20 @@ function esc(s){
   return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];
   });
+}
+
+let modalResolve = null;
+function askConfirm(title, body){
+  return new Promise(function(resolve){
+    modalResolve = resolve;
+    $('modal-title').textContent = title || '确认';
+    $('modal-body').textContent = body || '';
+    $('modal').style.display = 'flex';
+  });
+}
+function closeModal(ok){
+  $('modal').style.display = 'none';
+  if (modalResolve) { const r = modalResolve; modalResolve = null; r(ok); }
 }
 
 function sigInfo(sig){
@@ -295,7 +327,8 @@ async function createClone(){
 }
 
 async function deleteClone(bid, label){
-  if (!confirm('确定删除副本「' + label + '」？\n会同时删除它的应用和独立聊天数据，不可恢复。')) return;
+  const yes = await askConfirm('确认删除', '确定删除副本「' + label + '」？\n会同时删除它的应用和独立聊天数据，不可恢复。');
+  if (!yes) return;
   setBusy(true);
   $('log').innerHTML = '正在删除「' + esc(label) + '」…';
   try {

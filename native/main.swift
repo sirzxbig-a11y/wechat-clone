@@ -114,6 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let config = WKWebViewConfiguration()
         webView = WKWebView(frame: rect, configuration: config)
+        webView.uiDelegate = self
         if let url = URL(string: "http://127.0.0.1:\(port)/") {
             webView.load(URLRequest(url: url))
         }
@@ -128,6 +129,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         server?.terminate()
+    }
+}
+
+extension AppDelegate: WKUIDelegate {
+    func webView(_ webView: WKWebView,
+                 runJavaScriptConfirmPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping (Bool) -> Void) {
+        let alert = NSAlert()
+        alert.messageText = "确认"
+        alert.informativeText = message
+        alert.addButton(withTitle: "确定")
+        alert.addButton(withTitle: "取消")
+        completionHandler(alert.runModal() == .alertFirstButtonReturn)
+    }
+
+    func webView(_ webView: WKWebView,
+                 runJavaScriptAlertPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping () -> Void) {
+        let alert = NSAlert()
+        alert.messageText = "提示"
+        alert.informativeText = message
+        alert.addButton(withTitle: "好")
+        alert.runModal()
+        completionHandler()
     }
 }
 
