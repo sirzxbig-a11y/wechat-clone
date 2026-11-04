@@ -9,6 +9,24 @@
 
 > 本地构建的 ad-hoc 签名，从网上下载后首次打开若被 Gatekeeper 拦截，右键 →「打开」即可。
 
+## ⚠️ 换电脑 / 兼容性注意事项（重要）
+
+这个 `.app` **不是任意一台 Mac 都能直接跑**，需同时满足以下硬性条件：
+
+| 条件 | 当前实际情况 | 不满足会怎样 |
+|---|---|---|
+| **CPU 架构** | 只编译了 `arm64`（Apple Silicon） | Intel Mac 无法运行 |
+| **系统版本** | 二进制实际最低要求 **macOS 27.2**（编译 SDK 默认值；`Info.plist` 写的 12.0 只是显示值） | 更老的系统打开即报错 / 闪退 |
+| **python3** | 原生 App 内部调用 `/usr/bin/python3` 启动内置服务 | 新电脑没装 Xcode Command Line Tools 时，界面显示「本地服务启动失败」 |
+
+此外还有使用前提：
+
+1. 新电脑需有 **`/Applications/WeChat.app`**（App 只负责重签它）。
+2. **外置硬盘软链接需单独配置**：App 能自动生成「工作微信.app」（复制 + 改 bundle id + 重签），但**不会**自动把聊天记录目录软链接到外置硬盘；这一步需手动做，或改用微信自带的「存储空间 → 更改存储位置」。
+3. 从网上下载的 `.app` 带 quarantine，首次打开若被 Gatekeeper 拦截，**右键 →「打开」**即可。
+
+> 想要更广的兼容性，可重新构建：降低最低系统版本（如 `swiftc -target arm64-apple-macos12.0`）、编译成 Universal（Intel + Apple Silicon），或把 `server.py` 逻辑用 Swift 重写以彻底去掉 python3 依赖。
+
 ## 最终形态
 
 已打包为原生 macOS App：**`/Applications/微信双开重签工具.app`**
