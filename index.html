@@ -65,6 +65,8 @@
   .clone-row .meta{font-size:12px;color:var(--muted);margin-top:3px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all}
   .mini-btn{border:none;border-radius:9px;padding:8px 12px;font-size:12px;font-weight:600;background:var(--blue-l);color:var(--blue);cursor:pointer;font-family:inherit;flex-shrink:0}
   .mini-btn:hover{background:#dbe7fd}
+  .mini-btn.danger{background:var(--red-l);color:var(--red)}
+  .mini-btn.danger:hover{background:#fbd9da}
   .log{background:#0f1117;color:#d7e0ea;border-radius:12px;padding:14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.6;max-height:300px;overflow:auto;white-space:pre-wrap;word-break:break-all;margin-top:14px}
   .log .ok{color:#7ee2a8}.log .err{color:#ff8b8b}.log .dim{color:#8b96a5}
   .hint{font-size:12px;color:var(--muted);margin-top:12px;line-height:1.65}
@@ -82,12 +84,12 @@
   </header>
 
   <section class="card">
-    <div class="card-h"><div class="ico">🪟</div><div><h2>微信应用</h2><div class="desc">App Store 更新后会自动变回沙盒版，需要重签</div></div></div>
+    <div class="card-h"><div class="ico">🪟</div><div><h2>微信应用</h2><div class="desc">主微信 / 工作微信 / 所有多开副本，都会同步显示</div></div></div>
     <div id="apps"></div>
   </section>
 
   <section class="card">
-    <div class="card-h"><div class="ico">🔗</div><div><h2>聊天数据</h2><div class="desc">软链接指向外置硬盘，重签不会动它</div></div></div>
+    <div class="card-h"><div class="ico">🔗</div><div><h2>聊天数据</h2><div class="desc">每个实例的聊天数据目录，跟随实例增减</div></div></div>
     <div id="data"></div>
   </section>
 
@@ -98,7 +100,7 @@
       <button class="btn primary" onclick="createClone()">创建多开微信</button>
     </div>
     <div id="clones"></div>
-    <div class="hint">副本会从主微信复制并重签，使用独立聊天数据目录；创建后到「应用程序」双击打开、登录新账号即可。</div>
+    <div class="hint">副本会从主微信复制并重签，使用独立聊天数据目录；创建后到「应用程序」双击打开、登录新账号即可。删除副本会同时删除它的独立聊天数据。</div>
   </section>
 
   <section class="card">
@@ -137,35 +139,38 @@ function sigInfo(sig){
   return {text:'未知签名', cls:'gray'};
 }
 
-function renderApp(label, a){
-  if (!a || !a.exists) {
-    return '<div class="row"><div><div class="name">' + esc(label) + '</div><div class="meta">未安装</div></div><span class="tag gray">未安装</span></div>';
+function renderInstances(s){
+  const list = (s && s.instances) || [];
+  if (!list.length) {
+    return '<div class="row"><div><div class="name">未检测到微信</div></div></div>';
   }
-  const si = sigInfo(a.signature);
-  return '<div class="row">' +
-    '<div style="min-width:0">' +
-      '<div class="name">' + esc(label) + '</div>' +
-      '<div class="meta">' + esc(a.bundle_id) + ' · v' + esc(a.version) + (a.backup ? ' · 有备份' : '') + '</div>' +
-    '</div>' +
-    '<span class="tag ' + si.cls + '">' + si.text + '</span>' +
-  '</div>';
+  return list.map(function(a){
+    const si = sigInfo(a.signature);
+    return '<div class="row">' +
+      '<div style="min-width:0">' +
+        '<div class="name">' + esc(a.label) + '</div>' +
+        '<div class="meta">' + esc(a.bundle_id) + ' · v' + esc(a.version) + '</div>' +
+      '</div>' +
+      '<span class="tag ' + si.cls + '">' + si.text + '</span>' +
+    '</div>';
+  }).join('');
 }
 
-function renderData(d){
-  const list = [
-    ['主微信 · Documents', d.main_documents],
-    ['工作微信 · xwechat_files', d.work_xwechat_files]
-  ];
-  return list.map(function(item){
-    const label = item[0], obj = item[1];
-    const tgt = obj && obj.target;
-    let cls = 'gray', tag = '';
-    if (!tgt) { cls = 'amber'; tag = '未找到'; }
+function renderData(s){
+  const list = (s && s.instances) || [];
+  if (!list.length) {
+    return '<div class="row"><div><div class="name">未检测到微信</div></div></div>';
+  }
+  return list.map(function(a){
+    const d = a.data || {};
+    const tgt = d.target;
+    let cls, tag;
+    if (!tgt) { cls = 'amber'; tag = '未创建'; }
     else if (String(tgt).indexOf('/Volumes/') === 0) { cls = 'ok'; tag = '外置硬盘'; }
     else { cls = 'gray'; tag = '本地'; }
     return '<div class="row"><div style="min-width:0">' +
-      '<div class="name">' + esc(label) + '</div>' +
-      '<div class="meta">' + esc(tgt || '—') + '</div>' +
+      '<div class="name">' + esc(a.label) + ' · ' + esc(d.kind || '') + '</div>' +
+      '<div class="meta">' + esc(tgt || '首次启动后生成') + '</div>' +
     '</div><span class="tag ' + cls + '">' + tag + '</span></div>';
   }).join('');
 }
@@ -178,23 +183,27 @@ function renderClones(s){
   return clones.map(function(c){
     return '<div class="clone-row">' +
       '<div style="min-width:0">' +
-        '<div class="name">' + esc(c.name || '') + '</div>' +
+        '<div class="name">' + esc(c.label) + '</div>' +
         '<div class="meta">' + esc(c.bundle_id) + ' · v' + esc(c.version || '?') + '</div>' +
       '</div>' +
-      '<button class="mini-btn" data-path="' + esc(c.path) + '" onclick="openApp(this.dataset.path)">打开</button>' +
+      '<div style="display:flex;gap:6px;flex-shrink:0">' +
+        '<button class="mini-btn" data-path="' + esc(c.path) + '" onclick="openApp(this.dataset.path)">打开</button>' +
+        '<button class="mini-btn danger" data-bid="' + esc(c.bundle_id) + '" data-label="' + esc(c.label) + '" onclick="deleteClone(this.dataset.bid, this.dataset.label)">删除</button>' +
+      '</div>' +
     '</div>';
   }).join('');
 }
 
 function applyStatus(s){
-  $('apps').innerHTML = renderApp('主微信 WeChat.app', s.main) + renderApp('工作微信.app', s.work);
-  $('data').innerHTML = renderData(s.data);
+  $('apps').innerHTML = renderInstances(s);
+  $('data').innerHTML = renderData(s);
   $('clones').innerHTML = renderClones(s);
   const h = $('health');
-  const mainBad = s.main && s.main.exists && s.main.signature === 'appstore';
-  const workBad = s.work && s.work.exists && s.work.signature === 'appstore';
-  if (!s.main || !s.main.exists) { h.textContent = '未检测到微信'; h.className = 'pill bad'; }
-  else if (mainBad || workBad) { h.textContent = '需要重签'; h.className = 'pill warn'; }
+  const list = (s && s.instances) || [];
+  const hasMain = list.some(function(a){ return a.bundle_id === 'com.tencent.xinWeChat'; });
+  const anySandbox = list.some(function(a){ return a.signature === 'appstore'; });
+  if (!hasMain) { h.textContent = '未检测到微信'; h.className = 'pill bad'; }
+  else if (anySandbox) { h.textContent = '需要重签'; h.className = 'pill warn'; }
   else { h.textContent = '✓ 已就绪'; h.className = 'pill ok'; }
 }
 
@@ -216,7 +225,7 @@ function fmtLog(out){
   return String(out || '').split('\n').map(function(l){
     const t = esc(l);
     if (/错误|失败|abort|not found|不存在|异常/.test(l)) return '<span class="err">' + t + '</span>';
-    if (/完成|已安装|已备份|校验通过|ad-hoc|已创建/.test(l)) return '<span class="ok">' + t + '</span>';
+    if (/完成|已安装|已备份|校验通过|ad-hoc|已创建|已删除/.test(l)) return '<span class="ok">' + t + '</span>';
     if (/^\s*\[/.test(l)) return '<span class="dim">' + t + '</span>';
     return t;
   }).join('\n');
@@ -277,6 +286,26 @@ async function createClone(){
       const m = name.match(/^(.*?)(\d+)$/);
       $('clone-name').value = m ? (m[1] + (parseInt(m[2], 10) + 1)) : (name + '2');
     }
+  } catch (e) {
+    $('log').innerHTML = '<span class="err">请求失败：' + esc(e.message) + '</span>';
+  } finally {
+    setBusy(false);
+    refresh();
+  }
+}
+
+async function deleteClone(bid, label){
+  if (!confirm('确定删除副本「' + label + '」？\n会同时删除它的应用和独立聊天数据，不可恢复。')) return;
+  setBusy(true);
+  $('log').innerHTML = '正在删除「' + esc(label) + '」…';
+  try {
+    const r = await fetch('/api/delete', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({bundle_id: bid})
+    });
+    const j = await r.json();
+    $('log').innerHTML = fmtLog(j.output || '(无输出)');
+    if (j.status) applyStatus(j.status);
   } catch (e) {
     $('log').innerHTML = '<span class="err">请求失败：' + esc(e.message) + '</span>';
   } finally {

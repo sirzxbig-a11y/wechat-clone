@@ -3,7 +3,7 @@
 """
 微信双开重签工具 · 本地网页面板
 
-在本机起一个 HTTP 服务，浏览器打开后点按钮即可重签微信 / 创建多开。
+在本机起一个 HTTP 服务，浏览器打开后点按钮即可重签微信 / 创建多开 / 删除副本。
 只监听 127.0.0.1，不对外网暴露；实际重签动作复用同目录（或上一级）的 resign-wechat.sh。
 """
 
@@ -28,12 +28,12 @@ SCRIPT_CANDIDATES = [
 ]
 SCRIPT = next((p for p in SCRIPT_CANDIDATES if os.path.isfile(p)), SCRIPT_CANDIDATES[0])
 
+MAIN_BUNDLE = "com.tencent.xinWeChat"
+WORK_BUNDLE = "com.mywork.wechat"
+CLONE_PREFIX = "com.mywork.wechat"
+
 MAIN_APP = "/Applications/WeChat.app"
 WORK_APP = "/Applications/工作微信.app"
-MAIN_DOC = os.path.expanduser("~/Library/Containers/com.tencent.xinWeChat/Data/Documents")
-WORK_FILES = os.path.expanduser("~/Library/Containers/com.mywork.wechat/Data/Documents/xwechat_files")
-
-CLONE_PREFIX = "com.mywork.wechat"
 
 
 def run(cmd, timeout=600):
@@ -62,20 +62,6 @@ def sig_kind(app):
     return "unknown"
 
 
-def app_status(app):
-    if not os.path.isdir(app):
-        return {"exists": False, "path": app, "backup": bool(glob.glob(app + ".orig*"))}
-    return {
-        "exists": True,
-        "path": app,
-        "bundle_id": plist_get(app, "CFBundleIdentifier"),
-        "version": plist_get(app, "CFBundleShortVersionString"),
-        "build": plist_get(app, "CFBundleVersion"),
-        "signature": sig_kind(app),
-        "backup": bool(glob.glob(app + ".orig*")),
-    }
-
-
 def link_target(path):
     if os.path.islink(path):
         try:
@@ -87,20 +73,73 @@ def link_target(path):
     return None
 
 
-def list_clones():
-    """列出 /Applications 下所有「多开」副本（bundle id 以 com.mywork.wechat 开头，且不是固定工作微信）。"""
-    clones = []
-    for d in sorted(glob.glob("/Applications/*.app")):
+def data_for(bid):
+    """返回某个 bundle id 的聊天数据目录信息。"""
+    base = os.path.expanduser("~/Library/Containers/%s/Data/Documents" % bid)
+    if os.path.islink(base):
+        return {"path": base, "target": link_target(base), "kind": "Documents"}
+    files = os.path.join(base, "xwechat_files")
+    if os.path.islink(files):
+        return {"path": files, "target": link_target(files), "kind": "xwechat_files"}
+    if os.path.isdir(files):
+        return {"path": files, "target": "(真实目录)", "kind": "xwechat_files"}
+    return {"path": files, "target": None, "kind": "xwechat_files"}
+
+
+def is_wechat_instance(bid):
+    return bid == MAIN_BUNDLE or bid.startswith(CLONE_PREFIX)
+
+
+def instance_label(bid, app):
+    if bid == MAIN_BUNDLE:
+        return "主微信"
+    if bid == WORK_BUNDLE:
+        return "工作微信"
+    name = os.path.basename(app)
+    return name[:-4] if name.endswith(".app") else name
+
+
+def instance_info(app):
+    bid = plist_get(app, "CFBundleIdentifier") or ""
+    return {
+        "app": app,
+        "path": app,
+        "name": instance_label(bid, app),
+        "label": instance_label(bid, app),
+        "bundle_id": bid,
+        "version": plist_get(app, "CFBundleShortVersionString"),
+        "signature": sig_kind(app),
+        "data": data_for(bid),
+    }
+
+
+def app_status(app):
+    if not os.path.isdir(app):
+        return {"exists": False, "path": app, "backup": bool(glob.glob(app + ".orig*"))}
+    return {
+        "exists": True,
+        "path": app,
+        "bundle_id": plist_get(app, "CFBundleIdentifier"),
+        "version": plist_get(app, "CFBundleShortVersionString"),
+        "signature": sig_kind(app),
+        "backup": bool(glob.glob(app + ".orig*")),
+    }
+
+
+def list_instances():
+    items = []
+    for d in glob.glob("/Applications/*.app"):
         bid = plist_get(d, "CFBundleIdentifier") or ""
-        if bid.startswith(CLONE_PREFIX) and bid != "com.mywork.wechat":
-            clones.append({
-                "path": d,
-                "name": os.path.basename(d)[:-4] if d.endswith(".app") else os.path.basename(d),
-                "bundle_id": bid,
-                "version": plist_get(d, "CFBundleShortVersionString"),
-                "signature": sig_kind(d),
-            })
-    return clones
+        if is_wechat_instance(bid):
+            items.append(instance_info(d))
+    items.sort(key=lambda x: (0 if x["bundle_id"] == MAIN_BUNDLE else 1 if x["bundle_id"] == WORK_BUNDLE else 2,
+                              x["name"]))
+    return items
+
+
+def list_clones():
+    return [i for i in list_instances()
+            if i["bundle_id"].startswith(CLONE_PREFIX) and i["bundle_id"] != WORK_BUNDLE]
 
 
 def next_bundle_id():
@@ -120,13 +159,10 @@ def next_bundle_id():
 def get_status():
     return {
         "script": SCRIPT if os.path.isfile(SCRIPT) else None,
+        "instances": list_instances(),
+        "clones": list_clones(),
         "main": app_status(MAIN_APP),
         "work": app_status(WORK_APP),
-        "clones": list_clones(),
-        "data": {
-            "main_documents": {"path": MAIN_DOC, "target": link_target(MAIN_DOC)},
-            "work_xwechat_files": {"path": WORK_FILES, "target": link_target(WORK_FILES)},
-        },
     }
 
 
@@ -143,19 +179,14 @@ def rollback(which):
     orig = app + ".orig"
     if not os.path.isdir(orig):
         return {"ok": False, "output": "找不到备份：%s" % orig}
-
-    # 先退出正在运行的同名实例
     run(["pkill", "-TERM", "-f", app], timeout=15)
     time.sleep(2)
     run(["pkill", "-KILL", "-f", app], timeout=15)
-
-    # 当前应用挪到一边（保留，不删除）
     if os.path.isdir(app):
         aside = "%s.rollback-%s" % (app, time.strftime("%Y%m%d-%H%M%S"))
         code, out, err = run(["mv", app, aside], timeout=60)
         if code != 0:
             return {"ok": False, "output": "移走当前应用失败：%s%s" % (out, err)}
-
     code, out, err = run(["mv", orig, app], timeout=60)
     if code != 0:
         return {"ok": False, "output": "恢复备份失败：%s%s" % (out, err)}
@@ -220,6 +251,41 @@ def create_clone(name, bundle_id=None):
         }
     finally:
         run(["rm", "-rf", work], timeout=60)
+
+
+def delete_clone(bundle_id):
+    """删除一个多开副本：同时删除应用和它的独立聊天数据（容器）。"""
+    bid = (bundle_id or "").strip()
+    if not bid.startswith(CLONE_PREFIX) or bid == WORK_BUNDLE:
+        return {"ok": False, "output": "只能删除多开副本（不能删主微信 / 工作微信）"}
+
+    target = None
+    for d in glob.glob("/Applications/*.app"):
+        if plist_get(d, "CFBundleIdentifier") == bid:
+            target = d
+            break
+    if not target:
+        return {"ok": False, "output": "找不到该副本：%s" % bid}
+
+    run(["pkill", "-TERM", "-f", target], timeout=15)
+    time.sleep(1)
+    run(["pkill", "-KILL", "-f", target], timeout=15)
+
+    code, out, err = run(["rm", "-rf", target], timeout=120)
+    if code != 0:
+        return {"ok": False, "output": "删除应用失败：%s%s" % (out, err)}
+
+    container = os.path.expanduser("~/Library/Containers/%s" % bid)
+    data_note = "（未发现独立数据）"
+    data_dir = os.path.join(container, "Data")
+    if os.path.isdir(data_dir):
+        code, out, err = run(["rm", "-rf", data_dir], timeout=120)
+        if code == 0:
+            data_note = "（已清除独立聊天数据）"
+        else:
+            data_note = "（应用已删除；聊天数据部分未能清除，可忽略）"
+
+    return {"ok": True, "output": "已删除副本：%s\n%s" % (target, data_note)}
 
 
 def open_app(app):
@@ -289,6 +355,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             name = params.get("name", "")
             bid = params.get("bundle_id") or None
             result = create_clone(name, bid)
+            result["status"] = get_status()
+            self._send(200, json.dumps(result, ensure_ascii=False))
+        elif path == "/api/delete":
+            bid = params.get("bundle_id", "")
+            result = delete_clone(bid)
             result["status"] = get_status()
             self._send(200, json.dumps(result, ensure_ascii=False))
         elif path == "/api/open":
