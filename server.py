@@ -86,6 +86,16 @@ def data_for(bid):
     return {"path": files, "target": None, "kind": "xwechat_files"}
 
 
+def data_root_for(bid):
+    """解析某个实例真正的 xwechat_files 数据根目录（穿透软链接）。"""
+    doc = os.path.expanduser("~/Library/Containers/%s/Data/Documents" % bid)
+    if os.path.islink(doc):
+        base = os.readlink(doc)
+    else:
+        base = doc
+    return os.path.realpath(os.path.join(base, "xwechat_files"))
+
+
 def is_wechat_instance(bid):
     return bid == MAIN_BUNDLE or bid.startswith(CLONE_PREFIX)
 
@@ -193,7 +203,25 @@ def rollback(which):
     return {"ok": True, "output": "已回滚：%s" % app}
 
 
-def create_clone(name, bundle_id=None):
+def apply_data_source(bid, data_from):
+    """把新副本的 xwechat_files 软链接到某个已有实例的数据根目录（不复制）。"""
+    src_root = data_root_for(data_from)
+    if not os.path.isdir(src_root):
+        return "源数据目录不存在（按全新数据处理）：%s" % src_root
+
+    dest_doc = os.path.expanduser("~/Library/Containers/%s/Data/Documents" % bid)
+    os.makedirs(dest_doc, exist_ok=True)
+    link = os.path.join(dest_doc, "xwechat_files")
+    if os.path.lexists(link):
+        try:
+            os.unlink(link)
+        except Exception:
+            pass
+    os.symlink(src_root, link)
+    return "已沿用已有数据（软链接）：%s" % src_root
+
+
+def create_clone(name, bundle_id=None, data_from=None):
     """从主微信复制一个副本、改 bundle id、ad-hoc 重签，得到一个新的多开微信。"""
     name = (name or "").strip()
     if not name:
@@ -242,19 +270,24 @@ def create_clone(name, bundle_id=None):
         if code != 0:
             return {"ok": False, "output": "安装失败：%s%s" % (out, err)}
 
-        return {
-            "ok": True,
-            "app": target,
-            "bundle_id": bid,
-            "output": "已创建多开微信：%s\nbundle id: %s\n到「应用程序」双击打开，登录你要开的账号即可。"
-                      % (target, bid),
-        }
+        notes = []
+        if data_from:
+            try:
+                notes.append(apply_data_source(bid, data_from))
+            except Exception as e:
+                notes.append("沿用数据设置失败：%s" % e)
+
+        msg = "已创建多开微信：%s\nbundle id: %s" % (target, bid)
+        if notes:
+            msg += "\n" + "\n".join(notes)
+        msg += "\n到「应用程序」双击打开，登录你要开的账号即可。"
+        return {"ok": True, "app": target, "bundle_id": bid, "output": msg}
     finally:
         run(["rm", "-rf", work], timeout=60)
 
 
 def delete_clone(bundle_id):
-    """删除一个多开副本：同时删除应用和它的独立聊天数据（容器）。"""
+    """删除一个多开副本：同时清除它的独立聊天数据。"""
     bid = (bundle_id or "").strip()
     if not bid.startswith(CLONE_PREFIX) or bid == WORK_BUNDLE:
         return {"ok": False, "output": "只能删除多开副本（不能删主微信 / 工作微信）"}
@@ -354,7 +387,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/create":
             name = params.get("name", "")
             bid = params.get("bundle_id") or None
-            result = create_clone(name, bid)
+            data_from = params.get("data_from") or None
+            result = create_clone(name, bid, data_from)
             result["status"] = get_status()
             self._send(200, json.dumps(result, ensure_ascii=False))
         elif path == "/api/delete":

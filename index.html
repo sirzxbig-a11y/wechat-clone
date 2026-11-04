@@ -55,6 +55,11 @@
   .btn.ghost{background:var(--card2);color:var(--text);border:1px solid var(--line)}
   .btn.ghost:hover{background:#eef1f6}
   .btn-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .seg{display:flex;background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:4px;margin-top:12px}
+  .seg-btn{flex:1;border:none;background:transparent;border-radius:9px;padding:10px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;font-family:inherit}
+  .seg-btn.active{background:var(--green);color:#fff;box-shadow:0 4px 10px rgba(26,168,110,.25)}
+  .field-label{font-size:12.5px;font-weight:600;margin:12px 0 6px;color:var(--text)}
+  .select{width:100%;border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:13px;font-family:inherit;background:var(--card2);color:var(--text);outline:none;appearance:none}
   .create-row{display:flex;gap:10px;margin-top:14px}
   .create-row .input{flex:1;min-width:0;border:1px solid var(--line);border-radius:12px;padding:13px 14px;font-size:14px;font-family:inherit;background:var(--card2);color:var(--text);outline:none}
   .create-row .input:focus{border-color:var(--green);background:#fff}
@@ -101,12 +106,23 @@
 
   <section class="card">
     <div class="card-h"><div class="ico">➕</div><div><h2>多开</h2><div class="desc">新建一个微信副本，使用独立数据，可登录另一个账号</div></div></div>
+
+    <div class="seg">
+      <button class="seg-btn active" id="seg-fresh" onclick="setDataMode('fresh')">使用全新数据</button>
+      <button class="seg-btn" id="seg-reuse" onclick="setDataMode('reuse')">沿用已有数据</button>
+    </div>
+    <div id="reuse-box" style="display:none">
+      <div class="field-label">选择要沿用的数据</div>
+      <select id="data-from" class="select"></select>
+      <div class="hint" style="margin-top:8px">沿用 = 新副本通过软链接复用该实例的数据目录（不复制，不占额外空间）。</div>
+    </div>
+
     <div class="create-row">
       <input id="clone-name" class="input" type="text" placeholder="副本名称，如 微信3" value="微信3" />
       <button class="btn primary" onclick="createClone()">创建多开微信</button>
     </div>
     <div id="clones"></div>
-    <div class="hint">副本会从主微信复制并重签，使用独立聊天数据目录；创建后到「应用程序」双击打开、登录新账号即可。删除副本会同时删除它的独立聊天数据。</div>
+    <div class="hint">副本会从主微信复制并重签；创建后到「应用程序」双击打开、登录新账号即可。删除副本会同时清除它的独立聊天数据。</div>
   </section>
 
   <section class="card">
@@ -163,6 +179,26 @@ function askConfirm(title, body){
 function closeModal(ok){
   $('modal').style.display = 'none';
   if (modalResolve) { const r = modalResolve; modalResolve = null; r(ok); }
+}
+
+let dataMode = 'fresh';
+function setDataMode(m){
+  dataMode = m;
+  $('seg-fresh').classList.toggle('active', m === 'fresh');
+  $('seg-reuse').classList.toggle('active', m === 'reuse');
+  $('reuse-box').style.display = (m === 'reuse') ? 'block' : 'none';
+}
+
+function renderDataOptions(s){
+  const sel = $('data-from');
+  if (!sel) return;
+  const list = (s && s.instances) || [];
+  const cur = sel.value;
+  sel.innerHTML = list.map(function(a){
+    const tgt = (a.data && a.data.target) || '未创建';
+    return '<option value="' + esc(a.bundle_id) + '">' + esc(a.label) + ' — ' + esc(tgt) + '</option>';
+  }).join('');
+  if (cur && list.some(function(a){ return a.bundle_id === cur; })) sel.value = cur;
 }
 
 function sigInfo(sig){
@@ -230,6 +266,7 @@ function applyStatus(s){
   $('apps').innerHTML = renderInstances(s);
   $('data').innerHTML = renderData(s);
   $('clones').innerHTML = renderClones(s);
+  renderDataOptions(s);
   const h = $('health');
   const list = (s && s.instances) || [];
   const hasMain = list.some(function(a){ return a.bundle_id === 'com.tencent.xinWeChat'; });
@@ -250,14 +287,14 @@ async function refresh(){
 }
 
 function setBusy(b){
-  document.querySelectorAll('.btn, .mini-btn').forEach(function(x){ x.disabled = b; });
+  document.querySelectorAll('.btn, .mini-btn, .seg-btn').forEach(function(x){ x.disabled = b; });
 }
 
 function fmtLog(out){
   return String(out || '').split('\n').map(function(l){
     const t = esc(l);
     if (/错误|失败|abort|not found|不存在|异常/.test(l)) return '<span class="err">' + t + '</span>';
-    if (/完成|已安装|已备份|校验通过|ad-hoc|已创建|已删除/.test(l)) return '<span class="ok">' + t + '</span>';
+    if (/完成|已安装|已备份|校验通过|ad-hoc|已创建|已删除|已沿用/.test(l)) return '<span class="ok">' + t + '</span>';
     if (/^\s*\[/.test(l)) return '<span class="dim">' + t + '</span>';
     return t;
   }).join('\n');
@@ -304,12 +341,13 @@ async function rollback(which){
 async function createClone(){
   const name = ($('clone-name').value || '').trim();
   if (!name) { $('log').innerHTML = '<span class="err">请输入副本名称</span>'; return; }
+  const dataFrom = (dataMode === 'reuse') ? ($('data-from').value || null) : null;
   setBusy(true);
   $('log').innerHTML = '正在创建多开微信（复制 + 重签，约需 10~30 秒）…';
   try {
     const r = await fetch('/api/create', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({name: name})
+      body: JSON.stringify({name: name, data_from: dataFrom})
     });
     const j = await r.json();
     $('log').innerHTML = fmtLog(j.output || '(无输出)');
