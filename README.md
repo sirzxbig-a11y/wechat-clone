@@ -83,7 +83,10 @@ wechat-gui/
 ├── sync.sh            # 一键同步到 GitHub
 ├── native/
 │   ├── main.swift     # 原生壳（窗口 + WKWebView + 拉起内置服务）
-│   └── Info.plist
+│   ├── Info.plist
+│   ├── AppIcon.icns   # App 图标
+│   ├── make-icon.py   # 图标生成脚本
+│   └── icon_1024.png  # 图标源文件
 ├── dist/              # 打包好的 .app zip
 └── README.md
 ```

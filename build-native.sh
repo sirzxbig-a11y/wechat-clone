@@ -20,6 +20,7 @@ echo "[2/4] 拷贝 Info.plist 与资源 ..."
 cp native/Info.plist "$BUNDLE/Contents/Info.plist"
 cp server.py  "$BUNDLE/Contents/Resources/server.py"
 cp index.html "$BUNDLE/Contents/Resources/index.html"
+cp native/AppIcon.icns "$BUNDLE/Contents/Resources/AppIcon.icns"
 # 优先用仓库内的 resign-wechat.sh；没有则回退到上一级目录
 SCRIPT_SRC="$GUI_DIR/resign-wechat.sh"
 [ -f "$SCRIPT_SRC" ] || SCRIPT_SRC="$ROOT/resign-wechat.sh"
