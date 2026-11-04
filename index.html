@@ -55,6 +55,16 @@
   .btn.ghost{background:var(--card2);color:var(--text);border:1px solid var(--line)}
   .btn.ghost:hover{background:#eef1f6}
   .btn-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .create-row{display:flex;gap:10px;margin-top:14px}
+  .create-row .input{flex:1;min-width:0;border:1px solid var(--line);border-radius:12px;padding:13px 14px;font-size:14px;font-family:inherit;background:var(--card2);color:var(--text);outline:none}
+  .create-row .input:focus{border-color:var(--green);background:#fff}
+  .create-row .btn{white-space:nowrap}
+  .clone-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+  .clone-row:first-of-type{border-top:none;padding-top:4px}
+  .clone-row .name{font-size:13.5px;font-weight:600}
+  .clone-row .meta{font-size:12px;color:var(--muted);margin-top:3px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all}
+  .mini-btn{border:none;border-radius:9px;padding:8px 12px;font-size:12px;font-weight:600;background:var(--blue-l);color:var(--blue);cursor:pointer;font-family:inherit;flex-shrink:0}
+  .mini-btn:hover{background:#dbe7fd}
   .log{background:#0f1117;color:#d7e0ea;border-radius:12px;padding:14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.6;max-height:300px;overflow:auto;white-space:pre-wrap;word-break:break-all;margin-top:14px}
   .log .ok{color:#7ee2a8}.log .err{color:#ff8b8b}.log .dim{color:#8b96a5}
   .hint{font-size:12px;color:var(--muted);margin-top:12px;line-height:1.65}
@@ -66,7 +76,7 @@
   <header>
     <div>
       <h1>微信双开重签工具</h1>
-      <div class="sub">微信更新后 · 一键恢复双开与聊天记录</div>
+      <div class="sub">微信更新后 · 一键恢复双开、多开与聊天记录</div>
     </div>
     <div class="pill" id="health">检测中…</div>
   </header>
@@ -79,6 +89,16 @@
   <section class="card">
     <div class="card-h"><div class="ico">🔗</div><div><h2>聊天数据</h2><div class="desc">软链接指向外置硬盘，重签不会动它</div></div></div>
     <div id="data"></div>
+  </section>
+
+  <section class="card">
+    <div class="card-h"><div class="ico">➕</div><div><h2>多开</h2><div class="desc">新建一个微信副本，使用独立数据，可登录另一个账号</div></div></div>
+    <div class="create-row">
+      <input id="clone-name" class="input" type="text" placeholder="副本名称，如 微信3" value="微信3" />
+      <button class="btn primary" onclick="createClone()">创建多开微信</button>
+    </div>
+    <div id="clones"></div>
+    <div class="hint">副本会从主微信复制并重签，使用独立聊天数据目录；创建后到「应用程序」双击打开、登录新账号即可。</div>
   </section>
 
   <section class="card">
@@ -150,9 +170,26 @@ function renderData(d){
   }).join('');
 }
 
+function renderClones(s){
+  const clones = (s && s.clones) || [];
+  if (!clones.length) {
+    return '<div class="hint" style="margin-top:10px">还没有多开副本。</div>';
+  }
+  return clones.map(function(c){
+    return '<div class="clone-row">' +
+      '<div style="min-width:0">' +
+        '<div class="name">' + esc(c.name || '') + '</div>' +
+        '<div class="meta">' + esc(c.bundle_id) + ' · v' + esc(c.version || '?') + '</div>' +
+      '</div>' +
+      '<button class="mini-btn" data-path="' + esc(c.path) + '" onclick="openApp(this.dataset.path)">打开</button>' +
+    '</div>';
+  }).join('');
+}
+
 function applyStatus(s){
   $('apps').innerHTML = renderApp('主微信 WeChat.app', s.main) + renderApp('工作微信.app', s.work);
   $('data').innerHTML = renderData(s.data);
+  $('clones').innerHTML = renderClones(s);
   const h = $('health');
   const mainBad = s.main && s.main.exists && s.main.signature === 'appstore';
   const workBad = s.work && s.work.exists && s.work.signature === 'appstore';
@@ -172,14 +209,14 @@ async function refresh(){
 }
 
 function setBusy(b){
-  document.querySelectorAll('.btn').forEach(function(x){ x.disabled = b; });
+  document.querySelectorAll('.btn, .mini-btn').forEach(function(x){ x.disabled = b; });
 }
 
 function fmtLog(out){
   return String(out || '').split('\n').map(function(l){
     const t = esc(l);
     if (/错误|失败|abort|not found|不存在|异常/.test(l)) return '<span class="err">' + t + '</span>';
-    if (/完成|已安装|已备份|校验通过|ad-hoc/.test(l)) return '<span class="ok">' + t + '</span>';
+    if (/完成|已安装|已备份|校验通过|ad-hoc|已创建/.test(l)) return '<span class="ok">' + t + '</span>';
     if (/^\s*\[/.test(l)) return '<span class="dim">' + t + '</span>';
     return t;
   }).join('\n');
@@ -221,6 +258,40 @@ async function rollback(which){
     setBusy(false);
     refresh();
   }
+}
+
+async function createClone(){
+  const name = ($('clone-name').value || '').trim();
+  if (!name) { $('log').innerHTML = '<span class="err">请输入副本名称</span>'; return; }
+  setBusy(true);
+  $('log').innerHTML = '正在创建多开微信（复制 + 重签，约需 10~30 秒）…';
+  try {
+    const r = await fetch('/api/create', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name: name})
+    });
+    const j = await r.json();
+    $('log').innerHTML = fmtLog(j.output || '(无输出)');
+    if (j.status) applyStatus(j.status);
+    if (j.ok) {
+      const m = name.match(/^(.*?)(\d+)$/);
+      $('clone-name').value = m ? (m[1] + (parseInt(m[2], 10) + 1)) : (name + '2');
+    }
+  } catch (e) {
+    $('log').innerHTML = '<span class="err">请求失败：' + esc(e.message) + '</span>';
+  } finally {
+    setBusy(false);
+    refresh();
+  }
+}
+
+async function openApp(path){
+  try {
+    await fetch('/api/open', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({path: path})
+    });
+  } catch (e) {}
 }
 
 refresh();

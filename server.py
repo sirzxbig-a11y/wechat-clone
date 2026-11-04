@@ -3,7 +3,7 @@
 """
 微信双开重签工具 · 本地网页面板
 
-在本机起一个 HTTP 服务，浏览器打开后点按钮即可重签微信。
+在本机起一个 HTTP 服务，浏览器打开后点按钮即可重签微信 / 创建多开。
 只监听 127.0.0.1，不对外网暴露；实际重签动作复用同目录（或上一级）的 resign-wechat.sh。
 """
 
@@ -13,6 +13,7 @@ import json
 import os
 import socket
 import subprocess
+import tempfile
 import threading
 import time
 import webbrowser
@@ -31,6 +32,8 @@ MAIN_APP = "/Applications/WeChat.app"
 WORK_APP = "/Applications/工作微信.app"
 MAIN_DOC = os.path.expanduser("~/Library/Containers/com.tencent.xinWeChat/Data/Documents")
 WORK_FILES = os.path.expanduser("~/Library/Containers/com.mywork.wechat/Data/Documents/xwechat_files")
+
+CLONE_PREFIX = "com.mywork.wechat"
 
 
 def run(cmd, timeout=600):
@@ -84,11 +87,42 @@ def link_target(path):
     return None
 
 
+def list_clones():
+    """列出 /Applications 下所有「多开」副本（bundle id 以 com.mywork.wechat 开头，且不是固定工作微信）。"""
+    clones = []
+    for d in sorted(glob.glob("/Applications/*.app")):
+        bid = plist_get(d, "CFBundleIdentifier") or ""
+        if bid.startswith(CLONE_PREFIX) and bid != "com.mywork.wechat":
+            clones.append({
+                "path": d,
+                "name": os.path.basename(d)[:-4] if d.endswith(".app") else os.path.basename(d),
+                "bundle_id": bid,
+                "version": plist_get(d, "CFBundleShortVersionString"),
+                "signature": sig_kind(d),
+            })
+    return clones
+
+
+def next_bundle_id():
+    existing = set()
+    for d in glob.glob("/Applications/*.app"):
+        bid = plist_get(d, "CFBundleIdentifier")
+        if bid:
+            existing.add(bid)
+    i = 2
+    while True:
+        bid = "%s%d" % (CLONE_PREFIX, i)
+        if bid not in existing:
+            return bid
+        i += 1
+
+
 def get_status():
     return {
         "script": SCRIPT if os.path.isfile(SCRIPT) else None,
         "main": app_status(MAIN_APP),
         "work": app_status(WORK_APP),
+        "clones": list_clones(),
         "data": {
             "main_documents": {"path": MAIN_DOC, "target": link_target(MAIN_DOC)},
             "work_xwechat_files": {"path": WORK_FILES, "target": link_target(WORK_FILES)},
@@ -126,6 +160,73 @@ def rollback(which):
     if code != 0:
         return {"ok": False, "output": "恢复备份失败：%s%s" % (out, err)}
     return {"ok": True, "output": "已回滚：%s" % app}
+
+
+def create_clone(name, bundle_id=None):
+    """从主微信复制一个副本、改 bundle id、ad-hoc 重签，得到一个新的多开微信。"""
+    name = (name or "").strip()
+    if not name:
+        return {"ok": False, "output": "请输入副本名称（如：微信3）"}
+    if "/" in name or ":" in name or name.startswith("."):
+        return {"ok": False, "output": "副本名称不能包含 / : 或以 . 开头"}
+    target = "/Applications/%s.app" % name
+    if os.path.exists(target):
+        return {"ok": False, "output": "已存在同名应用：%s" % target}
+    if not os.path.isdir(MAIN_APP):
+        return {"ok": False, "output": "找不到主微信：%s" % MAIN_APP}
+
+    bid = (bundle_id or "").strip() or next_bundle_id()
+
+    work = tempfile.mkdtemp(prefix="wechat-clone-")
+    tmp_app = os.path.join(work, "%s.app" % name)
+    try:
+        code, out, err = run(["ditto", MAIN_APP, tmp_app], timeout=300)
+        if code != 0:
+            return {"ok": False, "output": "复制失败：%s%s" % (out, err)}
+        run(["chmod", "-R", "u+w", tmp_app], timeout=120)
+
+        code, out, err = run(["/usr/libexec/PlistBuddy", "-c",
+                              "Set :CFBundleIdentifier %s" % bid,
+                              os.path.join(tmp_app, "Contents", "Info.plist")], timeout=30)
+        if code != 0:
+            return {"ok": False, "output": "设置 bundle id 失败：%s%s" % (out, err)}
+
+        ent = os.path.join(work, "empty.plist")
+        with open(ent, "w") as f:
+            f.write('<?xml version="1.0" encoding="UTF-8"?>\n'
+                    '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+                    '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+                    '<plist version="1.0"><dict/></plist>\n')
+
+        code, out, err = run(["codesign", "--force", "--deep", "--sign", "-",
+                              "--entitlements", ent, tmp_app], timeout=600)
+        if code != 0:
+            return {"ok": False, "output": "重签名失败：%s%s" % (out, err)}
+
+        code, out, err = run(["codesign", "--verify", "--deep", "--strict", tmp_app], timeout=120)
+        if code != 0:
+            return {"ok": False, "output": "签名校验失败：%s%s" % (out, err)}
+
+        code, out, err = run(["mv", tmp_app, target], timeout=120)
+        if code != 0:
+            return {"ok": False, "output": "安装失败：%s%s" % (out, err)}
+
+        return {
+            "ok": True,
+            "app": target,
+            "bundle_id": bid,
+            "output": "已创建多开微信：%s\nbundle id: %s\n到「应用程序」双击打开，登录你要开的账号即可。"
+                      % (target, bid),
+        }
+    finally:
+        run(["rm", "-rf", work], timeout=60)
+
+
+def open_app(app):
+    if not (app.startswith("/Applications/") and app.endswith(".app") and os.path.isdir(app)):
+        return {"ok": False, "output": "非法应用路径"}
+    run(["open", app], timeout=30)
+    return {"ok": True, "output": "已打开：%s" % app}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -183,6 +284,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return
             result = rollback(which)
             result["status"] = get_status()
+            self._send(200, json.dumps(result, ensure_ascii=False))
+        elif path == "/api/create":
+            name = params.get("name", "")
+            bid = params.get("bundle_id") or None
+            result = create_clone(name, bid)
+            result["status"] = get_status()
+            self._send(200, json.dumps(result, ensure_ascii=False))
+        elif path == "/api/open":
+            app = params.get("path", "")
+            result = open_app(app)
             self._send(200, json.dumps(result, ensure_ascii=False))
         else:
             self._send(404, json.dumps({"error": "not found"}, ensure_ascii=False))
