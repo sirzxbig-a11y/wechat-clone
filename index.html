@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>微信双开重签工具</title>
+<style>
+  :root{
+    --bg1:#f7f9fc; --bg2:#e7ecf3;
+    --card:#ffffff; --card2:#f6f8fa;
+    --text:#1b1d22; --muted:#8b909a; --line:#edf0f4;
+    --green:#1aa86e; --green-d:#168f5c; --green-l:#e7f7ef;
+    --blue:#2b6de5; --blue-l:#e9f0fe;
+    --red:#e5484d; --red-l:#fdecec;
+    --amber:#e59d1b; --amber-l:#fdf4e3;
+    --r:18px;
+    --shadow:0 6px 24px rgba(20,30,60,.07), 0 1px 2px rgba(20,30,60,.05);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",Arial,sans-serif;
+    background:radial-gradient(1200px 700px at 50% -20%, #ffffff 0%, var(--bg1) 42%, var(--bg2) 100%);
+    color:var(--text); min-height:100vh; display:flex; justify-content:center;
+    padding:46px 18px 64px;
+  }
+  .wrap{width:100%;max-width:560px}
+  header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:22px}
+  h1{font-size:30px;font-weight:800;letter-spacing:-.02em;line-height:1.15}
+  .sub{color:var(--muted);font-size:13px;margin-top:7px}
+  .pill{font-size:12px;border-radius:999px;padding:8px 13px;background:var(--card);border:1px solid var(--line);color:var(--muted);box-shadow:var(--shadow);white-space:nowrap;font-weight:600}
+  .pill.ok{color:var(--green);border-color:#cfeadd;background:var(--green-l)}
+  .pill.warn{color:var(--amber);border-color:#f4e2bd;background:var(--amber-l)}
+  .pill.bad{color:var(--red);border-color:#f6cdcd;background:var(--red-l)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:18px;margin-bottom:15px}
+  .card-h{display:flex;align-items:center;gap:11px;margin-bottom:6px}
+  .card-h .ico{font-size:19px;line-height:1;width:30px;height:30px;display:flex;align-items:center;justify-content:center;background:var(--card2);border-radius:9px}
+  .card-h h2{font-size:15px;font-weight:700}
+  .card-h .desc{font-size:12px;color:var(--muted);margin-top:2px}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 0;border-top:1px solid var(--line)}
+  .row:first-of-type{border-top:none;padding-top:4px}
+  .row .name{font-size:13.5px;font-weight:600}
+  .row .meta{font-size:12px;color:var(--muted);margin-top:3px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all;line-height:1.45}
+  .tag{font-size:11.5px;border-radius:999px;padding:5px 10px;white-space:nowrap;font-weight:600;flex-shrink:0}
+  .tag.ok{color:var(--green);background:var(--green-l)}
+  .tag.bad{color:var(--red);background:var(--red-l)}
+  .tag.amber{color:var(--amber);background:var(--amber-l)}
+  .tag.gray{color:var(--muted);background:var(--card2)}
+  .btns{display:grid;gap:10px;margin-top:14px}
+  .btn{appearance:none;border:none;border-radius:12px;font-size:14px;font-weight:700;padding:14px 16px;cursor:pointer;transition:.15s;font-family:inherit}
+  .btn:active{transform:scale(.99)}
+  .btn[disabled]{opacity:.5;cursor:not-allowed}
+  .btn.primary{background:var(--green);color:#fff;box-shadow:0 6px 16px rgba(26,168,110,.28)}
+  .btn.primary:hover{background:var(--green-d)}
+  .btn.blue{background:var(--blue);color:#fff}
+  .btn.ghost{background:var(--card2);color:var(--text);border:1px solid var(--line)}
+  .btn.ghost:hover{background:#eef1f6}
+  .btn-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .log{background:#0f1117;color:#d7e0ea;border-radius:12px;padding:14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.6;max-height:300px;overflow:auto;white-space:pre-wrap;word-break:break-all;margin-top:14px}
+  .log .ok{color:#7ee2a8}.log .err{color:#ff8b8b}.log .dim{color:#8b96a5}
+  .hint{font-size:12px;color:var(--muted);margin-top:12px;line-height:1.65}
+  code{background:var(--card2);border-radius:5px;padding:1px 5px;font-family:ui-monospace,Menlo,monospace;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>微信双开重签工具</h1>
+      <div class="sub">微信更新后 · 一键恢复双开与聊天记录</div>
+    </div>
+    <div class="pill" id="health">检测中…</div>
+  </header>
+
+  <section class="card">
+    <div class="card-h"><div class="ico">🪟</div><div><h2>微信应用</h2><div class="desc">App Store 更新后会自动变回沙盒版，需要重签</div></div></div>
+    <div id="apps"></div>
+  </section>
+
+  <section class="card">
+    <div class="card-h"><div class="ico">🔗</div><div><h2>聊天数据</h2><div class="desc">软链接指向外置硬盘，重签不会动它</div></div></div>
+    <div id="data"></div>
+  </section>
+
+  <section class="card">
+    <div class="card-h"><div class="ico">🛠️</div><div><h2>操作</h2><div class="desc">更新完微信后，点一次「一键重签」即可</div></div></div>
+    <div class="btns">
+      <button class="btn primary" onclick="action('both')">一键重签（主微信 + 工作微信）</button>
+      <div class="btn-row">
+        <button class="btn ghost" onclick="action('main')">只重签主微信</button>
+        <button class="btn ghost" onclick="action('work')">只更新工作微信</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn ghost" onclick="rollback('main')">回滚主微信</button>
+        <button class="btn ghost" onclick="rollback('work')">回滚工作微信</button>
+      </div>
+    </div>
+    <div class="hint">只在本机 <code>127.0.0.1</code> 运行，不对外网开放。第一次使用请先确保 <code>resign-wechat.sh</code> 与本工具在同一目录（或上一级目录）。</div>
+  </section>
+
+  <section class="card">
+    <div class="card-h"><div class="ico">📋</div><div><h2>处理进度</h2><div class="desc">执行过程与结果反馈</div></div></div>
+    <pre class="log" id="log">等待操作…</pre>
+  </section>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];
+  });
+}
+
+function sigInfo(sig){
+  if (sig === 'appstore') return {text:'App Store 沙盒版', cls:'bad'};
+  if (sig === 'adhoc') return {text:'ad-hoc 已重签', cls:'ok'};
+  return {text:'未知签名', cls:'gray'};
+}
+
+function renderApp(label, a){
+  if (!a || !a.exists) {
+    return '<div class="row"><div><div class="name">' + esc(label) + '</div><div class="meta">未安装</div></div><span class="tag gray">未安装</span></div>';
+  }
+  const si = sigInfo(a.signature);
+  return '<div class="row">' +
+    '<div style="min-width:0">' +
+      '<div class="name">' + esc(label) + '</div>' +
+      '<div class="meta">' + esc(a.bundle_id) + ' · v' + esc(a.version) + (a.backup ? ' · 有备份' : '') + '</div>' +
+    '</div>' +
+    '<span class="tag ' + si.cls + '">' + si.text + '</span>' +
+  '</div>';
+}
+
+function renderData(d){
+  const list = [
+    ['主微信 · Documents', d.main_documents],
+    ['工作微信 · xwechat_files', d.work_xwechat_files]
+  ];
+  return list.map(function(item){
+    const label = item[0], obj = item[1];
+    const tgt = obj && obj.target;
+    let cls = 'gray', tag = '';
+    if (!tgt) { cls = 'amber'; tag = '未找到'; }
+    else if (String(tgt).indexOf('/Volumes/') === 0) { cls = 'ok'; tag = '外置硬盘'; }
+    else { cls = 'gray'; tag = '本地'; }
+    return '<div class="row"><div style="min-width:0">' +
+      '<div class="name">' + esc(label) + '</div>' +
+      '<div class="meta">' + esc(tgt || '—') + '</div>' +
+    '</div><span class="tag ' + cls + '">' + tag + '</span></div>';
+  }).join('');
+}
+
+function applyStatus(s){
+  $('apps').innerHTML = renderApp('主微信 WeChat.app', s.main) + renderApp('工作微信.app', s.work);
+  $('data').innerHTML = renderData(s.data);
+  const h = $('health');
+  const mainBad = s.main && s.main.exists && s.main.signature === 'appstore';
+  const workBad = s.work && s.work.exists && s.work.signature === 'appstore';
+  if (!s.main || !s.main.exists) { h.textContent = '未检测到微信'; h.className = 'pill bad'; }
+  else if (mainBad || workBad) { h.textContent = '需要重签'; h.className = 'pill warn'; }
+  else { h.textContent = '✓ 已就绪'; h.className = 'pill ok'; }
+}
+
+async function refresh(){
+  try {
+    const r = await fetch('/api/status', {cache:'no-store'});
+    applyStatus(await r.json());
+  } catch (e) {
+    $('health').textContent = '连接失败';
+    $('health').className = 'pill bad';
+  }
+}
+
+function setBusy(b){
+  document.querySelectorAll('.btn').forEach(function(x){ x.disabled = b; });
+}
+
+function fmtLog(out){
+  return String(out || '').split('\n').map(function(l){
+    const t = esc(l);
+    if (/错误|失败|abort|not found|不存在|异常/.test(l)) return '<span class="err">' + t + '</span>';
+    if (/完成|已安装|已备份|校验通过|ad-hoc/.test(l)) return '<span class="ok">' + t + '</span>';
+    if (/^\s*\[/.test(l)) return '<span class="dim">' + t + '</span>';
+    return t;
+  }).join('\n');
+}
+
+async function action(mode){
+  setBusy(true);
+  $('log').innerHTML = '正在执行，请稍候…';
+  try {
+    const r = await fetch('/api/resign', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({mode: mode})
+    });
+    const j = await r.json();
+    $('log').innerHTML = fmtLog(j.output || '(无输出)');
+    if (j.status) applyStatus(j.status);
+  } catch (e) {
+    $('log').innerHTML = '<span class="err">请求失败：' + esc(e.message) + '</span>';
+  } finally {
+    setBusy(false);
+    refresh();
+  }
+}
+
+async function rollback(which){
+  setBusy(true);
+  $('log').innerHTML = '正在回滚…';
+  try {
+    const r = await fetch('/api/rollback', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({which: which})
+    });
+    const j = await r.json();
+    $('log').innerHTML = fmtLog(j.output || '(无输出)');
+    if (j.status) applyStatus(j.status);
+  } catch (e) {
+    $('log').innerHTML = '<span class="err">请求失败：' + esc(e.message) + '</span>';
+  } finally {
+    setBusy(false);
+    refresh();
+  }
+}
+
+refresh();
+</script>
+</body>
+</html>

@@ -1,0 +1,65 @@
+# 微信双开重签工具（网页面板 + 原生 App）
+
+一个纯本地的微信重签工具，点按钮即可完成，不用敲命令。
+界面参考了 `multiChat` / `moveChat` 那类工具的卡片风格。
+
+## 最终形态
+
+已打包为原生 macOS App：**`/Applications/微信双开重签工具.app`**
+双击打开即出现独立窗口（Swift + WKWebView），关掉窗口即退出、并自动停止内置服务。
+
+## 两种运行方式
+
+### 方式一：原生 App（推荐）
+
+直接双击 `/Applications/微信双开重签工具.app`。
+
+想重新构建：
+
+```bash
+./build-native.sh        # 生成 微信双开重签工具.app（会覆盖）
+```
+
+> 构建需要 Xcode Command Line Tools（自带 `swiftc`）。
+
+### 方式二：本地网页
+
+```bash
+/usr/bin/python3 server.py
+```
+
+终端会打印地址（默认 `http://127.0.0.1:8899/`），浏览器打开即可。
+只监听 `127.0.0.1`，不对外网开放；关闭终端即停止。
+
+## 功能
+
+- **微信应用**：显示主微信 / 工作微信的 bundle id、版本、签名状态
+  - `App Store 沙盒版` = 更新后需要重签
+  - `ad-hoc 已重签` = 可正常打开
+- **聊天数据**：显示外置硬盘软链接指向
+- **操作**：一键重签（主+工作）/ 只重签主微信 / 只更新工作微信 / 回滚
+- **处理进度**：实时日志
+
+## 依赖
+
+- 系统自带 `python3`
+- 同目录或上一级目录有 `resign-wechat.sh`（重签逻辑复用它）
+- 构建原生 App 需要 `swiftc`（Xcode Command Line Tools）
+
+## 目录结构
+
+```
+wechat-gui/
+├── server.py        # 本地服务 + API（复用 resign-wechat.sh）
+├── index.html       # 页面
+├── start.command    # 网页版双击启动
+├── build-native.sh  # 打包原生 App
+├── native/
+│   ├── main.swift   # 原生壳（窗口 + WKWebView + 拉起内置服务）
+│   └── Info.plist
+└── README.md
+```
+
+> 原生 App 内置了 `server.py` / `index.html` / `resign-wechat.sh` 的副本，
+> 一旦 `resign-wechat.sh` 有更新，重新跑一次 `./build-native.sh` 即可同步。
+
