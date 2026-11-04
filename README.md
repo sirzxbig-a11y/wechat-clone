@@ -74,16 +74,30 @@
 
 ```
 wechat-gui/
-├── server.py        # 本地服务 + API（复用 resign-wechat.sh）
-├── index.html       # 页面
-├── start.command    # 网页版双击启动
-├── build-native.sh  # 打包原生 App
+├── server.py          # 本地服务 + API（复用 resign-wechat.sh）
+├── index.html         # 页面
+├── resign-wechat.sh   # 核心重签脚本
+├── start.command      # 网页版双击启动
+├── build-native.sh    # 打包原生 App
+├── sync.sh            # 一键同步到 GitHub
 ├── native/
-│   ├── main.swift   # 原生壳（窗口 + WKWebView + 拉起内置服务）
+│   ├── main.swift     # 原生壳（窗口 + WKWebView + 拉起内置服务）
 │   └── Info.plist
+├── dist/              # 打包好的 .app zip
 └── README.md
 ```
 
 > 原生 App 内置了 `server.py` / `index.html` / `resign-wechat.sh` 的副本，
 > 一旦 `resign-wechat.sh` 有更新，重新跑一次 `./build-native.sh` 即可同步。
+
+## 同步到 GitHub
+
+日常改动后，一条命令同步本地与 GitHub：
+
+```bash
+./sync.sh                  # 使用默认提交信息
+./sync.sh "feat: 改了xxx"   # 自定义提交信息
+```
+
+> 依赖已保存的 GitHub 凭据（macOS 钥匙串）。若 token 失效，直接 `git push` 时输入新 token（会自动保存）即可。
 
